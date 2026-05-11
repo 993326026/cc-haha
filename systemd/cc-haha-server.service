@@ -6,8 +6,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=aibot
-WorkingDirectory=/opt/aibot/cc-haha/cc-haha-0.2.1
-EnvironmentFile=/opt/aibot/cc-haha/cc-haha-0.2.1/.env
+WorkingDirectory=/opt/aibot/cc-haha/cc-haha-v0.2.3
+EnvironmentFile=/opt/aibot/cc-haha/cc-haha-v0.2.3/.env
 ExecStart=/usr/local/bin/bun run src/server/index.ts
 Restart=always
 RestartSec=3

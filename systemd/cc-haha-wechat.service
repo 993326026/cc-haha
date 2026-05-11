@@ -7,7 +7,7 @@ Requires=cc-haha-server.service
 [Service]
 Type=simple
 User=aibot
-WorkingDirectory=/opt/aibot/cc-haha/cc-haha-0.2.1/adapters
+WorkingDirectory=/opt/aibot/cc-haha/cc-haha-v0.2.3/adapters
 ExecStart=/usr/local/bin/bun run wechat/index.ts
 Restart=always
 RestartSec=5
