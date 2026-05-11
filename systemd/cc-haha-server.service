@@ -1,0 +1,22 @@
+[Unit]
+Description=cc-haha Server (HTTP + WebSocket API)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aibot
+WorkingDirectory=/opt/aibot/cc-haha/cc-haha-0.2.1
+EnvironmentFile=/opt/aibot/cc-haha/cc-haha-0.2.1/.env
+ExecStart=/usr/local/bin/bun run src/server/index.ts
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cc-haha-server
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

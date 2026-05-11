@@ -1,0 +1,22 @@
+[Unit]
+Description=cc-haha WeChat IM Adapter
+After=network-online.target cc-haha-server.service
+Wants=network-online.target
+Requires=cc-haha-server.service
+
+[Service]
+Type=simple
+User=aibot
+WorkingDirectory=/opt/aibot/cc-haha/cc-haha-0.2.1/adapters
+ExecStart=/usr/local/bin/bun run wechat/index.ts
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cc-haha-wechat
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
