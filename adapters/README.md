@@ -28,6 +28,9 @@ Desktop Webapp Settings
 - IM 配置和配对都在 Desktop Webapp 的 `Settings -> IM 接入`
 - Webapp 不会自动启动 Adapter 进程，仍需手动运行 `bun run wechat`、`bun run dingtalk`、`bun run telegram` 或 `bun run feishu`
 
+# WeChat 首次使用需先扫码绑定（CLI 环境）
+bun run wechat:qr-bind
+
 ## 快速启动
 
 ```bash
@@ -38,6 +41,9 @@ bun run telegram
 bun run feishu
 # 或
 bun run wechat
+
+# WeChat 首次使用需先扫码绑定（CLI 环境）
+bun run wechat:qr-bind
 # 或
 bun run dingtalk
 ```
