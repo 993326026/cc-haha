@@ -545,9 +545,11 @@ export async function runHeadless(
     proactiveModule.activateProactive('command')
   }
 
-  // Periodically force a full GC to keep memory usage in check
+  // Periodically force a synchronous full GC to keep memory usage in check.
+  // Bun.gc(true) blocks until full collection completes — 15s interval
+  // balances collection thoroughness against jank risk.
   if (typeof Bun !== 'undefined') {
-    const gcTimer = setInterval(Bun.gc, 1000)
+    const gcTimer = setInterval(() => Bun.gc(true), 15000)
     gcTimer.unref()
   }
 
