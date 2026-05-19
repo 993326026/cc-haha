@@ -20,6 +20,7 @@ import { handleComputerUseApi } from './api/computer-use.js'
 import { handleHahaOAuthApi } from './api/haha-oauth.js'
 import { handleHahaOpenAIOAuthApi } from './api/haha-openai-oauth.js'
 import { handleMcpApi } from './api/mcp.js'
+import { handleSessionMcpApi } from './api/session-mcp.js'
 import { handleDiagnosticsApi } from './api/diagnostics.js'
 import { handleDoctorApi } from './api/doctor.js'
 import { handleH5AccessApi } from './api/h5-access.js'
@@ -38,6 +39,9 @@ export async function handleApiRequest(req: Request, url: URL): Promise<Response
       const subResource = segments[3]
       if (subResource === 'chat') {
         return handleConversationsApi(req, url, segments)
+      }
+      if (subResource === 'mcp-servers') {
+        return handleSessionMcpApi(req, url, segments)
       }
       return handleSessionsApi(req, url, segments)
     }

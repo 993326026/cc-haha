@@ -11,6 +11,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { ProviderService } from './providerService.js'
 import { sessionService } from './sessionService.js'
+import { sessionMcpService } from './sessionMcpService.js'
 import { diagnosticsService } from './diagnosticsService.js'
 import {
   isMaterializedWorktreeLaunch,
@@ -524,6 +525,27 @@ export class ConversationService {
     })
   }
 
+  async applySessionMcpServers(sessionId: string): Promise<void> {
+    const servers = sessionMcpService.getSessionMcpServers(sessionId)
+    if (!servers || Object.keys(servers).length === 0) {
+      console.log(`[conversationService] applySessionMcpServers ${sessionId}: no dynamic MCP servers configured, skipping`)
+      return
+    }
+    if (!this.hasSession(sessionId)) {
+      console.log(`[conversationService] applySessionMcpServers ${sessionId}: CLI not running, skipping`)
+      return
+    }
+
+    const names = Object.keys(servers)
+    console.log(`[conversationService] applySessionMcpServers ${sessionId}: sending mcp_set_servers with ${names.join(', ')}`)
+    const result = await this.requestControl(
+      sessionId,
+      { subtype: 'mcp_set_servers', servers },
+      10_000,
+    )
+    console.log(`[conversationService] applySessionMcpServers ${sessionId}: result — added=[${(result.added || []).join(', ')}] removed=[${(result.removed || []).join(', ')}] errors=${JSON.stringify(result.errors || {})}`)
+  }
+
   hasSession(sessionId: string): boolean {
     return this.sessions.has(sessionId)
   }
@@ -610,6 +632,32 @@ export class ConversationService {
           msg.request?.subtype === 'can_use_tool' &&
           typeof msg.request_id === 'string'
         ) {
+          // Auto-approve MCP tools for sessions that have dynamic MCP servers configured.
+          // fire-mgmt integration uses this to avoid blocking on the can_use_tool
+          // permission roundtrip that would require fire to handle permission_request events.
+          const toolName = typeof msg.request.tool_name === 'string' ? msg.request.tool_name : ''
+          if (toolName.startsWith('mcp__')) {
+            const serverName = toolName.replace(/^mcp__/, '').replace(/__[^_].*$/, '')
+            if (sessionMcpService.hasSessionMcpServers(sessionId)) {
+              const dynamicServers = sessionMcpService.getSessionMcpServers(sessionId) ?? {}
+              if (serverName in dynamicServers) {
+                // Respond immediately so the CLI doesn't block
+                this.sendSdkMessage(sessionId, {
+                  type: 'control_response',
+                  response: {
+                    subtype: 'success',
+                    request_id: msg.request_id,
+                    response: {
+                      behavior: 'allow',
+                      updatedInput: {},
+                    },
+                  },
+                })
+                return  // don't queue in pendingPermissionRequests
+              }
+            }
+          }
+
           session.pendingPermissionRequests.set(msg.request_id, {
             toolName:
               typeof msg.request.tool_name === 'string'

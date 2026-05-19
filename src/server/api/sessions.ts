@@ -16,6 +16,7 @@
 
 import { sessionService } from '../services/sessionService.js'
 import { conversationService } from '../services/conversationService.js'
+import { sessionMcpService } from '../services/sessionMcpService.js'
 import { ApiError, errorResponse } from '../middleware/errorHandler.js'
 import { closeSessionConnection, getSlashCommands } from '../ws/handler.js'
 import { getCommandName } from '../../commands.js'
@@ -356,6 +357,7 @@ async function deleteSession(sessionId: string): Promise<Response> {
   }
   closeSessionConnection(sessionId, 'session deleted')
   cleanupAdapterSessionMappings(sessionId)
+  sessionMcpService.clearSessionMcp(sessionId)
   return Response.json({ ok: true })
 }
 
@@ -435,6 +437,7 @@ async function getSessionInspection(sessionId: string, url: URL): Promise<Respon
       skillCount: Array.isArray(initMessage?.skills) ? initMessage.skills.length : 0,
     },
     errors: {},
+    dynamicMcpServers: Object.keys(sessionMcpService.getSessionMcpServers(sessionId) ?? {}),
   }
   const transcriptUsage = await sessionService.getTranscriptUsage(sessionId)
   const transcriptContextEstimate = await sessionService.getTranscriptContextEstimate(sessionId)

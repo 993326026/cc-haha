@@ -545,6 +545,7 @@ async function restartSessionWithPermissionMode(
       `ws://${ws.data.serverHost}:${ws.data.serverPort}/sdk/${sessionId}` +
       `?token=${encodeURIComponent(crypto.randomUUID())}`
     await conversationService.startSession(sessionId, workDir, sdkUrl, runtimeSettings)
+    await conversationService.applySessionMcpServers(sessionId)
 
     sendMessage(ws, { type: 'status', state: 'idle' })
     console.log(`[WS] Restarted CLI for ${sessionId} with permission mode: ${mode}`)
@@ -583,6 +584,7 @@ async function restartSessionWithRuntimeConfig(
       `ws://${ws.data.serverHost}:${ws.data.serverPort}/sdk/${sessionId}` +
       `?token=${encodeURIComponent(crypto.randomUUID())}`
     await conversationService.startSession(sessionId, workDir, sdkUrl, runtimeSettings)
+    await conversationService.applySessionMcpServers(sessionId)
 
     sendMessage(ws, { type: 'status', state: 'idle' })
     console.log(`[WS] Restarted CLI for ${sessionId} with runtime override`)
@@ -872,6 +874,7 @@ async function ensureCliSessionStarted(
     await sendRepositoryStartupStatus(ws, sessionId, reason)
     console.log(`[WS] Starting CLI for ${sessionId} due to ${reason}`)
     await conversationService.startSession(sessionId, workDir, sdkUrl, runtimeSettings)
+    await conversationService.applySessionMcpServers(sessionId)
   })()
 
   sessionStartupPromises.set(sessionId, startup)
