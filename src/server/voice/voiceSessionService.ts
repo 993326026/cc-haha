@@ -9,6 +9,18 @@ export type VoiceSession = {
   createdAt: number
 }
 
+// 合法状态转移
+const VALID_TRANSITIONS: Record<VoiceSessionState, VoiceSessionState[]> = {
+  connecting: ['listening', 'closed'],
+  listening: ['thinking', 'interrupted', 'closed'],
+  thinking: ['speaking', 'tool_running', 'interrupted', 'listening', 'closed'],
+  speaking: ['listening', 'interrupted', 'closed'],
+  tool_running: ['speaking', 'listening', 'interrupted', 'awaiting_permission', 'closed'],
+  awaiting_permission: ['tool_running', 'listening', 'interrupted', 'closed'],
+  interrupted: ['listening', 'closed'],
+  closed: [],
+}
+
 class VoiceSessionService {
   private sessions = new Map<string, VoiceSession>()
 
@@ -38,6 +50,16 @@ class VoiceSessionService {
   updateState(voiceSessionId: string, state: VoiceSessionState): boolean {
     const session = this.sessions.get(voiceSessionId)
     if (!session) return false
+    if (session.state === state) return true
+
+    const allowed = VALID_TRANSITIONS[session.state]
+    if (allowed && !allowed.includes(state)) {
+      console.warn(
+        `[voiceSession] invalid transition: ${session.state} → ${state} (session=${voiceSessionId})`,
+      )
+      return false
+    }
+
     session.state = state
     return true
   }
