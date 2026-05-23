@@ -71,6 +71,8 @@
 
 说明：
 首版主线不走 `ASR -> text LLM -> TTS` 拼装方案，也不把 `Seeduplex` 放进正式依赖。
+同时，首版不做 “Qwen 负责语音、DeepSeek 负责同一 voice session 主推理” 这种双 provider 协作。
+另外，`Qwen` 首版主路径按 **直接 Realtime 模型** 接入，不按 `workspace_id/app_id` 的应用型接入来设计。
 
 ## 文件结构预案
 
@@ -128,6 +130,7 @@ VOICE_RUNTIME_SESSION_SIGNING_KEY=
 ```text
 DASHSCOPE_API_KEY 即使是 sk-xxx 格式，也只能由 qwen_omni_realtime provider 使用。
 不要根据 sk- 前缀自动推断 provider。
+Qwen 首版主路径按直接 Realtime 模型接入，不要求 workspace_id 和 app_id。
 ```
 
 - [ ] **Step 2: 写出服务端保管规则**
@@ -168,7 +171,31 @@ secondary provider: openai 或 gemini
 experimental provider: seeduplex（只保留设计占位）
 ```
 
-- [ ] **Step 5: 提交文档**
+并补充 Qwen 约束：
+
+```text
+default qwen model: qwen3.5-omni-plus-realtime
+fallback qwen model: qwen3.5-omni-flash-realtime
+tool calling enabled => search disabled
+```
+
+- [ ] **Step 5: 写出首版推理模式规则**
+
+首版固定：
+
+```text
+reasoningMode = embedded
+```
+
+含义：
+
+```text
+voice session 只使用一个主要 voice provider 完成听、想、说。
+现有 text provider 继续服务普通文本 chat session。
+不在同一 voice session 里混跑 Qwen 语音 + DeepSeek 推理。
+```
+
+- [ ] **Step 6: 提交文档**
 
 Run:
 
@@ -321,6 +348,13 @@ POST /api/voice/session
 WS   /ws/voice/:voiceSessionId
 ```
 
+首版建议：
+
+```text
+先走 WebSocket 音频流
+WebRTC 放到后续阶段
+```
+
 - [ ] **Step 3: 实现最小 gateway**
 
 先只打通：
@@ -393,6 +427,15 @@ close
 provider event mapping
 ```
 
+并补齐百炼应用层配置：
+
+```text
+qwen3.5-omni-plus-realtime
+websocket auth
+tool calling mode
+duplex mode
+```
+
 - [ ] **Step 4: 跑 adapter 测试**
 
 Run:
@@ -430,12 +473,19 @@ describe('voiceAgentBridge', () => {
 
 - [ ] **Step 2: 实现最小 bridge**
 
-先打通：
+首版按 embedded reasoning 打通：
 
 ```text
-voice session -> agent session
-user transcript -> agent input
-tool result -> voice runtime event
+provider tool call -> cc-haha tool/MCP execution
+cc-haha permission flow -> voice runtime event
+tool result -> provider event
+voice session metadata -> audit/session state
+```
+
+不要在首版这里强行接：
+
+```text
+transcript.final -> runHeadless text main loop -> assistant text -> re-speak
 ```
 
 - [ ] **Step 3: 跑 bridge 测试**

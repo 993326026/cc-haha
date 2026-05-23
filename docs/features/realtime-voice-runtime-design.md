@@ -404,6 +404,28 @@ Provider 的事件回调通过 `ProviderConnectOptions` 注入，避免 adapter 
 - `Qwen-Omni-Realtime` 适合进入设计稿主线
 - 首版可以把它作为第一 provider adapter
 
+补充一个关键校准：
+
+对我们这次要做的实时语音 Runtime，更合适的主路径不是“多模态交互应用 + `workspace_id/app_id`”，而是 **直接使用百炼的 Realtime 模型 WebSocket API**。
+
+按当前官方文档，`qwen3.5-omni-plus-realtime` 和 `qwen3.5-omni-flash-realtime` 都是直接的 Realtime 模型能力，工程上应理解为：
+
+- 使用 WebSocket 连接
+- 输入支持文本、音频、图片
+- 输出支持文本、音频
+- 支持 `Function Calling`
+- 支持联网搜索
+- 但 **联网搜索与工具调用不能同时开启**
+
+这意味着首版 Phase 2 的真实门槛应改成：
+
+- `DASHSCOPE_API_KEY`
+- 正确的 Realtime WebSocket endpoint
+- 明确的模型名，例如 `qwen3.5-omni-plus-realtime`
+- 会话级工具配置与语音事件桥接
+
+如果未来要接入百炼更上层的“多模态交互应用”产品形态，可以作为另一种 provider adapter 或另一种 provider type，但不应作为这次首版主路径。
+
 ### Seeduplex
 
 从产品体验和研究方向上看，它非常值得关注，甚至很可能是未来语音体验的标杆之一。  
@@ -437,6 +459,112 @@ Provider 的事件回调通过 `ProviderConnectOptions` 注入，避免 adapter 
 浏览器端应通过服务端创建临时会话或临时 token。
 
 注意：`DASHSCOPE_API_KEY` 即使是 `sk-xxx` 格式，也不能按 OpenAI key 处理。provider 类型必须来自 voice provider 配置，而不是 key 前缀。
+
+对 `Qwen` 主路径，还应明确以下模型能力边界：
+
+- 推荐主模型：`qwen3.5-omni-plus-realtime`
+- 成本优先可选：`qwen3.5-omni-flash-realtime`
+- 语音会话里启用 `Function Calling` 时，不要同时开启联网搜索
+
+## Agent Bridge 具体融合方式
+
+这是当前设计里最容易被误解的一段，所以这里明确分成两种模式：
+
+### Mode A：Embedded Reasoner
+
+这是首版推荐，也是首版默认模式。
+
+含义：
+
+- 语音 provider 自己承担“听 + 想 + 说”
+- `cc-haha` 不把每一轮语音都塞回现有 text agent 主循环
+- `cc-haha` 主要负责：
+  - voice session 生命周期
+  - 工具桥接
+  - MCP 调用
+  - permission request / approve / reject
+  - 上下文注入
+  - 审计与状态管理
+
+这个模式下，`Agent Bridge` 的职责是：
+
+1. 将可信上下文注入到 voice session
+2. 监听 provider 发出的 tool call 意图
+3. 将 tool call 路由到现有 `cc-haha` tool/MCP/permission 体系
+4. 把 tool result 回传给 provider
+5. 在需要时插入 “正在查询...” “请确认是否继续...” 这类状态事件
+
+这里复用的是 **工具执行体系**，而不是把现有 `runHeadless` 的整套 “text in -> text out” 主循环强塞进实时语音回路。
+
+### Mode B：Delegated Reasoner
+
+这是第二阶段或实验模式，不作为首版主路径。
+
+含义：
+
+- 语音 provider 主要负责语音输入输出
+- 转写文本交给现有 text agent 主循环处理
+- assistant 文本结果再通过语音 provider 或 TTS 播放
+
+这个模式能更充分复用现有 text agent，但会明显增加延迟，也更难做出原生全双工体验。
+
+### 首版结论
+
+首版应明确采用 **Mode A：Embedded Reasoner**。
+
+这样：
+
+- 语音链路不会被现有 `runHeadless` 的请求-响应模型卡住
+- 打断、流式播报、实时状态都更容易成立
+- 现有 `cc-haha` 主要复用 tool/MCP/permission，而不是强行复用整个 text loop
+
+## Text Provider 与 Voice Provider 并存
+
+这也是首版必须明确的一条规则。
+
+系统允许同时存在：
+
+- 文本 provider，例如 `DeepSeek`
+- 语音 provider，例如 `Qwen-Omni-Realtime`
+
+但它们的职责边界要分清：
+
+- 文本 chat session 继续走现有 text provider
+- voice session 继续走独立 voice provider
+
+首版不要让一个 voice session 同时使用两个“推理脑”。
+
+也就是说，**首版不建议做**：
+
+- 语音 I/O 走 Qwen
+- 同一轮推理主脑走 DeepSeek
+
+因为这样会变成“双 provider 同步协作”的复杂链路，冲突点包括：
+
+- turn ownership
+- tool call authority
+- permission 节奏
+- 中断后的状态一致性
+- 文本与语音流对齐
+
+首版更合理的规则是：
+
+- 系统级可以同时配置多个 provider
+- 但单个 voice session 只选一个主要推理 provider
+
+未来如果要支持 “speech provider + text reasoning provider” 双 provider 协作，建议作为单独二期能力设计，例如：
+
+```ts
+type VoiceReasoningMode =
+  | 'embedded'
+  | 'delegated_text_agent'
+```
+
+首版固定为：
+
+```ts
+reasoningMode: 'embedded'
+```
 
 ## 错误处理
 

@@ -92,7 +92,7 @@
         "name": "DASHSCOPE_API_KEY"
       },
       "baseUrl": "wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
-      "model": "qwen-omni-turbo-realtime",
+      "model": "qwen3.5-omni-plus-realtime",
       "voice": "Cherry",
       "capabilities": {
         "audioInput": true,
@@ -132,6 +132,8 @@ if (apiKey.startsWith('sk-')) provider = 'openai'
 ```
 
 也就是说，**provider 类型由配置字段决定，不由 key 前缀决定**。
+
+对我们当前首版主路径，阿里云百炼的实时模型接入应按“直接 Realtime 模型”处理，不再把 `workspaceId` / `appId` 作为硬前提字段。
 
 ### Key 来源
 
@@ -177,6 +179,62 @@ type ApiKeyRef =
 - base URL 和 protocol 由 voice provider 配置决定
 - 只复用 key，不复用文本 provider 的模型映射
 
+但首版不要把“复用已有文本 provider 的 key”当主路径。首版应该优先支持独立 voice provider 配置，这样 text provider 和 voice provider 可以同时存在，而不会互相污染。
+
+## Qwen Realtime 校准
+
+按当前阿里云官方文档，`qwen3.5-omni-plus-realtime` 这条线的工程判断应当是：
+
+- 它是 **直接 WebSocket Realtime 模型**
+- 支持文本、音频、图片输入
+- 支持文本、音频输出
+- 支持 `Function Calling`
+- 支持联网搜索
+- 但联网搜索和工具调用不兼容，不能同时开启
+
+因此首版建议：
+
+- `model`: `qwen3.5-omni-plus-realtime`
+- `protocol`: `websocket`
+- `toolMode`: `function_calling`
+- `search`: `disabled`
+
+如果后面要做低成本版本，再补：
+
+- `qwen3.5-omni-flash-realtime`
+
+## 首版 provider 协作规则
+
+首版允许系统同时配置：
+
+- 一个或多个 text provider
+- 一个或多个 voice provider
+
+但单个 voice session 的推理规则固定为：
+
+```ts
+reasoningMode: 'embedded'
+```
+
+也就是：
+
+- 一个 voice session 只使用一个主要 voice provider
+- 不在同一个 voice session 里同时启用 “Qwen 负责语音 + DeepSeek 负责主推理”
+
+这样做是为了避免：
+
+- tool authority 冲突
+- permission 冲突
+- turn state 冲突
+- interrupt 后上下文不一致
+
+未来如果需要双 provider 协作，再单独增加：
+
+```ts
+reasoningMode: 'delegated_text_agent'
+textProviderId?: string
+```
+
 示例：
 
 ```json
@@ -214,7 +272,7 @@ GET    /api/voice/providers/presets
   "name": "Qwen Omni Realtime",
   "type": "qwen_omni_realtime",
   "defaultBaseUrl": "wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
-  "defaultModel": "qwen-omni-turbo-realtime",
+  "defaultModel": "qwen3.5-omni-plus-realtime",
   "defaultVoice": "Cherry",
   "apiKeyEnv": "DASHSCOPE_API_KEY",
   "apiKeyUrl": "https://bailian.console.aliyun.com/",
@@ -226,6 +284,9 @@ GET    /api/voice/providers/presets
     "serverVad": true,
     "bargeIn": true,
     "toolCalling": true
+  },
+  "constraints": {
+    "searchAndToolsMutuallyExclusive": true
   }
 }
 ```
@@ -269,3 +330,9 @@ GET    /api/voice/providers/presets
 - 预留 `text_provider` 复用字段，但第二阶段再实现
 
 这样既支持阿里云 `sk-xxx`，也不会把用户已经配置好的 DeepSeek / Kimi / GLM 文本模型配置搅乱。
+
+
+当前考虑的接入文档：qwen3.5-omni-plus-realtime
+https://help.aliyun.com/zh/model-studio/realtime?spm=5176.30275541.J_ZGek9Blx07Hclc3Ddt9dg.1.4e332f3dXBUhEX&scm=20140722.S_help@@%E6%96%87%E6%A1%A3@@2880812._.ID_help@@%E6%96%87%E6%A1%A3@@2880812-RL_Qwen~DAS~Omni~DAS~Realtime-LOC_2024SPAllResult-OR_ser-PAR1_0bc3b4b317795309818871304e03a6-V_4-PAR3_o-RE_new6-P0_0-P1_0
+
+

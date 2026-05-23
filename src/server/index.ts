@@ -7,6 +7,7 @@
 
 import { handleApiRequest } from './router.js'
 import { handleWebSocket, type WebSocketData } from './ws/handler.js'
+import { handleVoiceWebSocket } from './voice/voiceGateway.js'
 import { resolveCors, type CorsResolution } from './middleware/cors.js'
 import { requireAuth } from './middleware/auth.js'
 import { teamWatcher } from './services/teamWatcher.js'
@@ -159,6 +160,26 @@ export function startServer(port = PORT, host = HOST) {
         return new Response(null, { status: 204, headers: cors.headers })
       }
 
+      // Voice WebSocket upgrade
+      if (url.pathname.startsWith('/ws/voice/')) {
+        if (cors.rejected) {
+          return corsRejectedResponse(cors)
+        }
+        const voiceSessionId = url.pathname.split('/').pop() || ''
+        if (!voiceSessionId || !/^[0-9a-zA-Z_-]{1,64}$/.test(voiceSessionId)) {
+          return new Response('Invalid voice session ID', { status: 400 })
+        }
+        const upgraded = server.upgrade(req, {
+          data: {
+            voiceSessionId,
+            connectedAt: Date.now(),
+            channel: 'voice',
+          },
+        })
+        if (upgraded) return undefined
+        return new Response('WebSocket upgrade failed', { status: 400 })
+      }
+
       // WebSocket upgrade
       if (url.pathname.startsWith('/ws/')) {
         if (cors.rejected) {
@@ -302,7 +323,36 @@ export function startServer(port = PORT, host = HOST) {
       return new Response('Not Found', { status: 404 })
     },
 
-    websocket: handleWebSocket,
+    websocket: {
+      open(ws) {
+        if (ws.data.channel === 'voice') {
+          handleVoiceWebSocket.open(ws)
+        } else {
+          handleWebSocket.open(ws)
+        }
+      },
+      message(ws, msg) {
+        if (ws.data.channel === 'voice') {
+          handleVoiceWebSocket.message(ws, msg)
+        } else {
+          handleWebSocket.message(ws, msg)
+        }
+      },
+      close(ws, code, reason) {
+        if (ws.data.channel === 'voice') {
+          handleVoiceWebSocket.close(ws, code, reason)
+        } else {
+          handleWebSocket.close(ws, code, reason)
+        }
+      },
+      drain(ws) {
+        if (ws.data.channel === 'voice') {
+          handleVoiceWebSocket.drain(ws)
+        } else {
+          handleWebSocket.drain(ws)
+        }
+      },
+    },
   })
 
   // Start watching ~/.claude/teams/ for real-time WebSocket push
