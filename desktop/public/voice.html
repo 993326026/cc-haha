@@ -43,18 +43,7 @@ function log(msg) {
 
 // ===== MAIN =====
 async function toggle() {
-  if (active) {
-    // If AI is speaking, tap = interrupt
-    if (ws && ws.readyState === 1) {
-      ws.send(JSON.stringify({ type: 'assistant.interrupt' }))
-      nextPlayTime = audioCtx ? audioCtx.currentTime : 0
-      $('transcript').textContent = ''
-      log('⏹ 打断')
-      return
-    }
-    hangup()
-    return
-  }
+  if (active) { hangup(); return }
 
   active = true
   audioStarted = false
