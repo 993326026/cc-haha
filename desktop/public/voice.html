@@ -48,7 +48,8 @@ async function toggle() {
     if (ws && ws.readyState === 1) {
       ws.send(JSON.stringify({ type: 'assistant.interrupt' }))
       nextPlayTime = audioCtx ? audioCtx.currentTime : 0
-      log('⏹ 手动打断')
+      $('transcript').textContent = ''
+      log('⏹ 打断')
       return
     }
     hangup()
@@ -117,9 +118,9 @@ async function toggle() {
       case 'session.state':
         log('状态: ' + m.state)
         if (m.state === 'interrupted') {
-          // Stop playback immediately
           nextPlayTime = audioCtx ? audioCtx.currentTime : 0
-          log('⏹ 打断')
+          $('transcript').textContent = ''
+          log('⏹ VAD打断')
         }
         if (m.state === 'listening') {
           // Start audio capture when provider is ready
@@ -130,8 +131,6 @@ async function toggle() {
         }
         break
       case 'transcript.delta':
-        $('transcript').textContent = m.text
-        break
       case 'transcript.final':
         $('transcript').textContent = m.text
         break
