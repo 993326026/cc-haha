@@ -595,7 +595,9 @@ git add src/server/voice/voiceSessionService.ts src/server/voice/voiceGateway.ts
 git commit -m "feat: add voice interrupt flow"
 ```
 
-### Task 9: 接入第二 provider
+### Task 9: 接入第二 provider（延后开发）
+
+> **状态: 延后。** 待首版 Qwen 链路跑通并接入首个业务系统后再启动。
 
 **Files:**
 - Create: `src/server/voice/providers/openaiRealtimeAdapter.ts` 或 `src/server/voice/providers/geminiLiveAdapter.ts`
