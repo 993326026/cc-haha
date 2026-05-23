@@ -41,9 +41,11 @@ function mapQwenEvent(qwenType: string, data: Record<string, unknown>, callId?: 
       return { type: 'session.state', state: 'listening' }
 
     case 'input_audio_buffer.speech_started':
-      return { type: 'session.state', state: 'listening' }
+      // User started speaking — could be barge-in
+      return { type: 'session.state', state: 'interrupted' }
 
     case 'input_audio_buffer.speech_stopped':
+      // User finished speaking
       return { type: 'session.state', state: 'thinking' }
 
     case 'response.created':
@@ -61,11 +63,13 @@ function mapQwenEvent(qwenType: string, data: Record<string, unknown>, callId?: 
 
     case 'response.audio_transcript.delta': {
       const text = typeof data.delta === 'string' ? data.delta : ''
+      if (text) process.stderr.write(text)
       return { type: 'transcript.delta', text, speaker: 'assistant' }
     }
 
     case 'response.audio_transcript.done': {
       const text = typeof data.transcript === 'string' ? data.transcript : ''
+      process.stderr.write('\n[Qwen] ' + text + '\n')
       return { type: 'transcript.final', text, speaker: 'assistant' }
     }
 
@@ -100,7 +104,10 @@ function mapQwenEvent(qwenType: string, data: Record<string, unknown>, callId?: 
 
 // ---- Adapter implementation ----
 
+let firstAudio = true
+
 function createQwenConnection(options: ProviderConnectOptions): ProviderConnection {
+  firstAudio = true
   const { apiKey, model, voice, instructions, tools, onEvent, baseUrl } = options
   const endpoint = baseUrl ?? WS_BASE_URL
   const wsUrl = `${endpoint}?model=${encodeURIComponent(model)}`
@@ -124,6 +131,13 @@ function createQwenConnection(options: ProviderConnectOptions): ProviderConnecti
         try {
           const data = JSON.parse(typeof msg.data === 'string' ? msg.data : '')
           const qwenType: string = data.type ?? ''
+          // Log raw event type for debugging barge-in
+          if (qwenType !== 'response.audio_transcript.delta' && qwenType !== 'response.audio.delta') {
+            console.error(`[qwen] ${qwenType}`)
+          }
+          if (qwenType === 'error' || qwenType === 'session.error') {
+            console.error(`[qwen-adapter] RAW QWEN ERROR: ${typeof msg.data === 'string' ? msg.data : 'binary'}`)
+          }
           const event = mapQwenEvent(qwenType, data)
           if (event) {
             onEvent(event)
@@ -166,11 +180,11 @@ function createQwenConnection(options: ProviderConnectOptions): ProviderConnecti
       type: 'session.update',
       session: {
         modalities: ['text', 'audio'],
-        voice: voice ?? 'Cherry',
-        input_audio_format: 'pcm16',
-        output_audio_format: 'pcm16',
-        instructions: instructions ?? '',
-        turn_detection: { type: 'server_vad' },
+        voice: 'Tina',
+        input_audio_format: 'pcm',
+        output_audio_format: 'pcm',
+        instructions: instructions ?? '你是AI语音助手，请用自然口语简短回复。',
+        turn_detection: { type: 'semantic_vad', threshold: 0.5, silence_duration_ms: 800, create_response: true, interrupt_response: true },
         tools: (tools ?? []).map(t => ({
           type: 'function',
           function: {
@@ -191,10 +205,14 @@ function createQwenConnection(options: ProviderConnectOptions): ProviderConnecti
     async sendAudio(chunk: AudioChunk): Promise<void> {
       const s = await connectionPromise
       if (s.readyState === 1) {
+        const size = chunk.data.length
+        if (firstAudio) { console.error(`[qwen-adapter] first audio chunk: ${size} base64 chars`); firstAudio = false }
         s.send(JSON.stringify({
           type: 'input_audio_buffer.append',
           audio: chunk.data,
         }))
+      } else {
+        console.error(`[qwen-adapter] WS not ready, state=${s.readyState}`)
       }
     },
 

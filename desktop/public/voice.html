@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>AI Voice</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0a0a0a;color:#fff;height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center}
+#log{font-size:14px;color:#aaa;max-width:320px;text-align:center;line-height:1.8;margin-bottom:20px}
+#transcript{font-size:16px;color:#60a5fa;min-height:28px;margin-bottom:16px;text-align:center}
+button{width:80px;height:80px;border-radius:50%;border:none;font-size:32px;cursor:pointer;background:#ef4444;color:#fff;box-shadow:0 4px 24px rgba(239,68,68,.4);transition:.2s}
+button.on{background:#22c55e;box-shadow:0 4px 24px rgba(34,197,94,.4)}
+</style>
+</head>
+<body>
+<div id="log">点击按钮开始</div>
+<div id="transcript"></div>
+<button id="btn" onclick="toggle()">📞</button>
+
+<script>
+// ===== STATE =====
+let ws = null
+let stream = null
+let audioCtx = null
+let active = false
+let audioStarted = false
+let nextPlayTime = 0
+
+// Audio nodes (global refs to avoid GC)
+let sourceNode = null
+let processorNode = null
+let muteGain = null
+
+// ===== HELPERS =====
+const $ = id => document.getElementById(id)
+
+function log(msg) {
+  const el = $('log')
+  el.innerHTML += '<br>' + msg
+  el.scrollTop = el.scrollHeight
+}
+
+// ===== MAIN =====
+async function toggle() {
+  if (active) {
+    // If AI is speaking, tap = interrupt
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'assistant.interrupt' }))
+      nextPlayTime = audioCtx ? audioCtx.currentTime : 0
+      log('⏹ 手动打断')
+      return
+    }
+    hangup()
+    return
+  }
+
+  active = true
+  audioStarted = false
+  nextPlayTime = 0
+  $('btn').classList.add('on')
+  $('btn').textContent = '⏹'
+  $('log').innerHTML = '开始连接...'
+
+  // 1. Microphone
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true }
+    })
+    log('麦克风 OK')
+  } catch (e) {
+    log('麦克风失败: ' + e.message)
+    active = false
+    return
+  }
+
+  // 2. AudioContext — create NOW in user gesture
+  const micRate = stream.getAudioTracks()[0].getSettings().sampleRate || 48000
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: micRate })
+  await audioCtx.resume()
+  if (audioCtx.state !== 'running') {
+    log('AudioContext 启动失败: ' + audioCtx.state)
+    active = false
+    return
+  }
+  log('音频就绪 ' + micRate + 'Hz')
+
+  // 3. Create voice session
+  let vs
+  try {
+    const r = await fetch(`${location.protocol}//${location.host}/api/voice/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"providerId":"qwen"}'
+    })
+    vs = await r.json()
+    if (!vs.voiceSessionId) { log('Session 失败'); active = false; return }
+    log('会话 ' + vs.voiceSessionId.slice(0, 8))
+  } catch (e) {
+    log('网络错误: ' + e.message)
+    active = false
+    return
+  }
+
+  // 4. WebSocket
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  ws = new WebSocket(`${proto}://${location.host}/ws/voice/${vs.voiceSessionId}`)
+
+  ws.onopen = () => { log('WS 已连接，等待 Qwen...') }
+
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data)
+    switch (m.type) {
+      case 'session.started':
+        log('会话已启动')
+        break
+      case 'session.state':
+        log('状态: ' + m.state)
+        if (m.state === 'interrupted') {
+          // Stop playback immediately
+          nextPlayTime = audioCtx ? audioCtx.currentTime : 0
+          log('⏹ 打断')
+        }
+        if (m.state === 'listening') {
+          // Start audio capture when provider is ready
+          if (!audioStarted) {
+            audioStarted = true
+            startAudioCapture()
+          }
+        }
+        break
+      case 'transcript.delta':
+        $('transcript').textContent = m.text
+        break
+      case 'transcript.final':
+        $('transcript').textContent = m.text
+        break
+      case 'assistant.audio.chunk':
+        playAudioChunk(m.audio)
+        break
+      case 'assistant.audio.stop':
+        nextPlayTime = audioCtx ? audioCtx.currentTime : 0
+        break
+      case 'session.error':
+        log('错误: ' + m.code + ' ' + (m.message || ''))
+        break
+    }
+  }
+
+  ws.onclose = () => {
+    if (active) { log('WS 断开'); hangup() }
+  }
+
+  ws.onerror = () => { log('WS 错误') }
+}
+
+// ===== AUDIO CAPTURE =====
+function startAudioCapture() {
+  try {
+    sourceNode = audioCtx.createMediaStreamSource(stream)
+    processorNode = audioCtx.createScriptProcessor(2048, 1, 1)
+
+    sourceNode.connect(processorNode)
+
+    // Connect via zero-gain to keep onaudioprocess alive but mute mic feedback
+    muteGain = audioCtx.createGain()
+    muteGain.gain.value = 0
+    processorNode.connect(muteGain)
+    muteGain.connect(audioCtx.destination)
+
+    let frames = 0
+    processorNode.onaudioprocess = function (e) {
+      if (!ws || ws.readyState !== 1) return
+
+      frames++
+      if (frames === 1) log('开始发送音频')
+
+      // Get raw samples
+      let samples = e.inputBuffer.getChannelData(0)
+
+      // Resample to 16kHz if needed
+      const ratio = audioCtx.sampleRate / 16000
+      if (Math.abs(ratio - 1) > 0.01) {
+        const outLen = Math.floor(samples.length / ratio)
+        const out = new Float32Array(outLen)
+        for (let i = 0; i < outLen; i++) out[i] = samples[Math.floor(i * ratio)]
+        samples = out
+      }
+
+      // Convert to PCM16
+      const i16 = new Int16Array(samples.length)
+      for (let i = 0; i < samples.length; i++) {
+        i16[i] = Math.max(-32768, Math.min(32767, samples[i] * 32767))
+      }
+
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(i16.buffer)))
+      ws.send(JSON.stringify({ type: 'audio.input.append', audio: b64, format: 'pcm16' }))
+    }
+
+    log('音频采集已启动')
+  } catch (e) {
+    log('音频采集失败: ' + e.message)
+  }
+}
+
+// ===== AUDIO PLAYBACK =====
+function playAudioChunk(b64) {
+  try {
+    // Decode base64 → Int16 → Float32
+    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
+    const i16 = new Int16Array(bytes.buffer)
+    const f32 = new Float32Array(i16.length)
+    for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768
+
+    // Qwen output: 24000 Hz PCM16
+    const buf = audioCtx.createBuffer(1, f32.length, 24000)
+    buf.getChannelData(0).set(f32)
+
+    const source = audioCtx.createBufferSource()
+    source.buffer = buf
+    source.connect(audioCtx.destination)
+
+    // Sequential playback — don't overlap chunks
+    const now = audioCtx.currentTime
+    if (nextPlayTime < now) nextPlayTime = now
+    source.start(nextPlayTime)
+    nextPlayTime += buf.duration
+  } catch (e) {
+    // ignore playback errors
+  }
+}
+
+// ===== HANGUP =====
+function hangup() {
+  active = false
+
+  // Send commit + close
+  if (ws && ws.readyState === 1) {
+    try { ws.send(JSON.stringify({ type: 'audio.input.commit' })) } catch (e) {}
+    try { ws.send(JSON.stringify({ type: 'session.close' })) } catch (e) {}
+    ws.close()
+  }
+  ws = null
+
+  // Clean up audio nodes
+  if (processorNode) { try { processorNode.disconnect() } catch (e) {}; processorNode = null }
+  if (muteGain) { try { muteGain.disconnect() } catch (e) {}; muteGain = null }
+  if (sourceNode) { try { sourceNode.disconnect() } catch (e) {}; sourceNode = null }
+
+  // Stop mic
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null }
+
+  // Reset UI
+  $('btn').classList.remove('on')
+  $('btn').textContent = '📞'
+  $('transcript').textContent = ''
+  log('已挂断')
+}
+</script>
+</body>
+</html>

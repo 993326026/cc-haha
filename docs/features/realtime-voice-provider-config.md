@@ -93,12 +93,16 @@
       },
       "baseUrl": "wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
       "model": "qwen3.5-omni-plus-realtime",
-      "voice": "Cherry",
+      "voice": "Tina",
+      "inputAudioFormat": "pcm",
+      "outputAudioFormat": "pcm",
+      "turnDetection": "semantic_vad",
       "capabilities": {
         "audioInput": true,
         "audioOutput": true,
         "transcription": true,
         "serverVad": true,
+        "semanticVad": true,
         "bargeIn": true,
         "toolCalling": true
       }
@@ -196,6 +200,10 @@ type ApiKeyRef =
 
 - `model`: `qwen3.5-omni-plus-realtime`
 - `protocol`: `websocket`
+- `voice`: `Tina` (实测可用; Cherry/Chelsie 已不可用)
+- `input_audio_format`: `pcm` (非 `pcm16`)
+- `output_audio_format`: `pcm`
+- `turn_detection`: `semantic_vad` (推荐，优于 `server_vad`)
 - `toolMode`: `function_calling`
 - `search`: `disabled`
 
@@ -273,7 +281,7 @@ GET    /api/voice/providers/presets
   "type": "qwen_omni_realtime",
   "defaultBaseUrl": "wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
   "defaultModel": "qwen3.5-omni-plus-realtime",
-  "defaultVoice": "Cherry",
+  "defaultVoice": "Tina",
   "apiKeyEnv": "DASHSCOPE_API_KEY",
   "apiKeyUrl": "https://bailian.console.aliyun.com/",
   "protocol": "websocket",
